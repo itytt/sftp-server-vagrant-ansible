@@ -1,0 +1,5 @@
+- name: SFTP Server Setup
+  hosts: localhost
+  become: true
+  roles:
+    - sftp

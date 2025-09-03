@@ -1,0 +1,74 @@
+Vagrant.configure("2") do |config|
+  config.vm.box = "ubuntu/focal64"
+  config.vm.hostname = "sftp-vm"
+  config.vm.boot_timeout = 300
+
+  # Network configuration
+  config.vm.network "private_network", ip: "192.168.56.101"
+
+  # Ensure proper DNS resolution using Netplan
+  config.vm.provision "shell", inline: <<-SHELL
+    echo "Fixing DNS resolution with Netplan..."
+    sudo systemctl stop systemd-resolved
+    sudo systemctl disable systemd-resolved
+    sudo rm -f /etc/resolv.conf
+    echo "nameserver 8.8.8.8" | sudo tee /etc/resolv.conf > /dev/null
+    echo "nameserver 8.8.4.4" | sudo tee -a /etc/resolv.conf > /dev/null
+
+    # Update Netplan configuration
+    sudo bash -c 'cat > /etc/netplan/99-vagrant-dns.yaml <<EOF
+network:
+  version: 2
+  ethernets:
+    enp0s3:
+      dhcp4: true
+      nameservers:
+        addresses:
+          - 8.8.8.8
+          - 8.8.4.4
+EOF'
+
+    # Apply Netplan configuration
+    sudo netplan apply
+  SHELL
+
+  # Sync the current directory to /vagrant on the VM
+  config.vm.synced_folder ".", "/vagrant", mount_options: ["dmode=777", "fmode=666"]
+
+  # Ensure SSH listens on all interfaces
+  config.vm.provision "shell", inline: <<-SHELL
+    echo "Updating SSH configuration to listen on all interfaces..."
+    sudo sed -i 's/^#ListenAddress 0.0.0.0/ListenAddress 0.0.0.0/' /etc/ssh/sshd_config
+    sudo sed -i 's/^#ListenAddress ::/ListenAddress ::/' /etc/ssh/sshd_config
+    sudo systemctl restart ssh
+  SHELL
+
+  # Copy the public key to the VM
+  config.vm.provision "file", source: "id_rsa.pub", destination: "/home/vagrant/my_key.pub"
+
+  # Append the public key to authorized_keys
+  config.vm.provision "shell", inline: <<-SHELL
+    cat /home/vagrant/my_key.pub >> /home/vagrant/.ssh/authorized_keys
+    chmod 600 /home/vagrant/.ssh/authorized_keys
+    rm /home/vagrant/my_key.pub
+  SHELL
+
+  # Install Ansible
+  config.vm.provision "shell", inline: <<-SHELL
+    sudo apt-get update -y
+    sudo apt-get install -y software-properties-common
+    sudo apt-add-repository --yes --update ppa:ansible/ansible
+    sudo apt-get install -y ansible
+  SHELL
+
+  # Provision VM
+  config.vm.provision "ansible_local" do |ansible|
+    ansible.playbook = "/vagrant/playbook.yml"
+    ansible.inventory_path = "/vagrant/inventory.yml"
+    ansible.limit = "localhost"
+    ansible.extra_vars = {
+      sftp_password: "SFTPUSRpass",
+      sftp_ssh_key: "/vagrant/id_rsa.pub"
+    }
+  end
+end

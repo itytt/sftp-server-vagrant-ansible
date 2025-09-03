@@ -1,0 +1,21 @@
+# SSH daemon configuration for SFTP
+Subsystem sftp internal-sftp
+
+# Enable both password and SSH key-based authentication
+PasswordAuthentication yes
+PubkeyAuthentication yes
+ChallengeResponseAuthentication no
+UsePAM yes
+
+# Listen on all interfaces
+Port 22
+AddressFamily any
+ListenAddress 0.0.0.0
+ListenAddress ::
+
+# Match group for SFTP users
+Match Group sftp_users
+    ChrootDirectory /data/%u
+    ForceCommand internal-sftp
+    AllowTcpForwarding no
+    X11Forwarding no

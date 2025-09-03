@@ -1,0 +1,64 @@
+- name: Install OpenSSH Server
+  apt:
+    name: openssh-server
+    state: present
+    update_cache: yes
+  become: true
+
+- name: Create SFTP group
+  group:
+    name: sftp_users
+    state: present
+  become: true
+
+- name: Create SFTP user
+  user:
+    name: SFTPUSR
+    group: sftp_users
+    shell: /sbin/nologin
+    state: present
+    password: "{{ sftp_password | password_hash('sha512') }}"
+  become: true
+
+- name: Create .ssh directory for SFTP user
+  file:
+    path: "/home/SFTPUSR/.ssh"
+    state: directory
+    owner: SFTPUSR
+    group: sftp_users
+    mode: '0700'
+  become: true
+
+- name: Add SSH public key for SFTP user
+  authorized_key:
+    user: SFTPUSR
+    key: "{{ lookup('file', sftp_ssh_key) }}"
+  become: true
+
+- name: Create directory structure
+  file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ item.owner }}"
+    group: "{{ item.group }}"
+    mode: "{{ item.mode }}"
+  loop:
+    - { path: /data/SFTPUSR, owner: root, group: sftp_users, mode: '0755' }
+    - { path: /data/SFTPUSR/upload, owner: SFTPUSR, group: sftp_users, mode: '0755' }
+  become: true
+
+- name: Configure SSH daemon for SFTP
+  template:
+    src: sshd_config.j2
+    dest: /etc/ssh/sshd_config
+    owner: root
+    group: root
+    mode: '0644'
+  become: true
+
+- name: Restart SSH service
+  systemd:
+    name: ssh
+    state: restarted
+    enabled: yes
+  become: true
